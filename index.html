@@ -1,0 +1,810 @@
+import { useState, useEffect, useRef } from "react";
+
+const STORAGE_KEY = "tre_study_v3";
+const DASH_PASSWORD = "epione2025";
+
+const TEAL = "#00c9a7";
+const AMBER = "#f59e0b";
+const ROSE = "#f43f5e";
+const SKY = "#38bdf8";
+const GREEN = "#3fb950";
+const MUTED = "#8b949e";
+
+// ── tiny helpers ──────────────────────────────────────────────────
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch { return []; }
+}
+function save(arr) { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
+
+function mean(arr, key) {
+  const vals = arr.map(r => parseFloat(r[key])).filter(v => !isNaN(v));
+  if (!vals.length) return "—";
+  return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+}
+
+function freq(arr, key) {
+  const c = {};
+  arr.forEach(r => {
+    (r[key] || "").split(",").map(v => v.trim()).filter(Boolean)
+      .forEach(v => { c[v] = (c[v] || 0) + 1; });
+  });
+  return Object.entries(c).sort((a, b) => b[1] - a[1]);
+}
+
+// ── shared styles ─────────────────────────────────────────────────
+const S = {
+  page: { minHeight: "100vh", background: "#0d1117", color: "#e6edf3", fontFamily: "'Inter',system-ui,sans-serif", fontSize: 14 },
+  nav: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 24px", background: "#161b22", borderBottom: "1px solid #30363d", position: "sticky", top: 0, zIndex: 100 },
+  brand: { fontWeight: 700, fontSize: 16, color: TEAL },
+  brandSub: { fontSize: 11, color: MUTED, fontWeight: 400 },
+  tabs: { display: "flex", gap: 6 },
+  tab: (active) => ({ padding: "7px 18px", borderRadius: 6, border: "1px solid " + (active ? TEAL : "#30363d"), background: active ? TEAL : "none", color: active ? "#0d1117" : MUTED, fontSize: 13, fontWeight: 600, cursor: "pointer" }),
+  hero: { padding: "48px 24px 32px", textAlign: "center", borderBottom: "1px solid #30363d", background: "linear-gradient(180deg,rgba(0,201,167,.06) 0%,transparent 100%)" },
+  heroEye: { fontSize: 11, color: TEAL, letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12, fontFamily: "monospace" },
+  h1: { fontSize: 28, fontWeight: 700, color: "#e6edf3", marginBottom: 10 },
+  heroP: { color: MUTED, fontSize: 13, maxWidth: 520, margin: "0 auto 18px" },
+  badge: (green) => ({ padding: "3px 12px", borderRadius: 20, border: "1px solid " + (green ? TEAL : "#30363d"), color: green ? TEAL : MUTED, fontSize: 11, display: "inline-block", margin: "0 4px 4px" }),
+  wrap: { maxWidth: 720, margin: "0 auto", padding: "32px 16px 100px" },
+  card: { background: "#161b22", border: "1px solid #30363d", borderRadius: 10, marginBottom: 24, overflow: "hidden" },
+  cardHead: { display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", background: "#1c2333", borderBottom: "1px solid #30363d" },
+  cardIcon: { width: 32, height: 32, borderRadius: 8, background: "rgba(0,201,167,.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 },
+  cardTitle: { fontWeight: 600, fontSize: 14 },
+  cardSub: { fontSize: 12, color: MUTED },
+  body: { padding: "20px" },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+  grid3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 },
+  label: { display: "block", fontSize: 12, fontWeight: 500, color: "#c9d1d9", marginBottom: 5 },
+  req: { color: TEAL, marginLeft: 2 },
+  input: { width: "100%", padding: "9px 12px", background: "#0d1117", border: "1px solid #30363d", borderRadius: 7, color: "#e6edf3", fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" },
+  select: { width: "100%", padding: "9px 12px", background: "#0d1117", border: "1px solid #30363d", borderRadius: 7, color: "#e6edf3", fontSize: 13, outline: "none", fontFamily: "inherit", appearance: "none", cursor: "pointer", boxSizing: "border-box" },
+  textarea: { width: "100%", padding: "9px 12px", background: "#0d1117", border: "1px solid #30363d", borderRadius: 7, color: "#e6edf3", fontSize: 13, outline: "none", fontFamily: "inherit", minHeight: 70, resize: "vertical", boxSizing: "border-box" },
+  tpBtn: (active) => ({ padding: "6px 16px", borderRadius: 20, border: "1px solid " + (active ? AMBER : "#30363d"), background: active ? AMBER : "none", color: active ? "#0d1117" : MUTED, fontSize: 12, fontWeight: active ? 700 : 400, cursor: "pointer" }),
+  submitBar: { position: "fixed", bottom: 0, left: 0, right: 0, background: "#161b22", borderTop: "1px solid #30363d", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 99 },
+  submitBtn: { padding: "10px 32px", background: TEAL, color: "#0d1117", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  outlineBtn: (color) => ({ padding: "8px 18px", background: "none", border: "1px solid " + (color || "#30363d"), color: color || MUTED, borderRadius: 7, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }),
+  stat: { background: "#161b22", border: "1px solid #30363d", borderRadius: 10, padding: "18px 16px", textAlign: "center" },
+  statVal: { fontSize: 28, fontWeight: 700, color: TEAL, fontFamily: "monospace", lineHeight: 1 },
+  statLabel: { fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 },
+  chartCard: (full) => ({ background: "#161b22", border: "1px solid #30363d", borderRadius: 10, padding: 18, gridColumn: full ? "1/-1" : undefined }),
+  chartTitle: { fontSize: 11, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 },
+};
+
+// ── Field components ──────────────────────────────────────────────
+function Field({ label, required, children, mt }) {
+  return (
+    <div style={{ marginTop: mt || 0 }}>
+      <label style={S.label}>{label}{required && <span style={S.req}>*</span>}</label>
+      {children}
+    </div>
+  );
+}
+
+function Input({ id, type = "text", ...rest }) {
+  return <input id={id} type={type} style={S.input} {...rest} />;
+}
+
+function Select({ id, children, ...rest }) {
+  return (
+    <select id={id} style={S.select} {...rest}>
+      <option value="">— Select —</option>
+      {children}
+    </select>
+  );
+}
+
+function CheckGroup({ name, options, values, onChange }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+      {options.map(opt => {
+        const checked = values.includes(opt);
+        return (
+          <label key={opt} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 7, border: "1px solid " + (checked ? TEAL : "#30363d"), background: checked ? "rgba(0,201,167,.07)" : "#0d1117", fontSize: 12, color: checked ? "#e6edf3" : MUTED, cursor: "pointer" }}>
+            <input type="checkbox" checked={checked} onChange={() => {
+              const next = checked ? values.filter(v => v !== opt) : [...values, opt];
+              onChange(next);
+            }} style={{ accentColor: TEAL }} />
+            {opt}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function Likert({ max = 5, labels, value, onChange }) {
+  const items = Array.from({ length: max }, (_, i) => i + 1);
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${max}, 1fr)`, gap: 6, marginTop: 8 }}>
+      {items.map(n => (
+        <div key={n} onClick={() => onChange(String(n))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px", borderRadius: 7, border: "1px solid " + (value === String(n) ? TEAL : "#30363d"), background: value === String(n) ? "rgba(0,201,167,.1)" : "#0d1117", cursor: "pointer", fontSize: 11, color: value === String(n) ? TEAL : MUTED, fontWeight: value === String(n) ? 700 : 400 }}>
+          <span style={{ fontSize: 15, fontFamily: "monospace", fontWeight: 700 }}>{n}</span>
+          {labels && labels[n - 1] && <span>{labels[n - 1]}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Mini bar chart (no library) ───────────────────────────────────
+function BarChart({ data, color = TEAL, horizontal = false }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: horizontal ? "column" : "row", gap: horizontal ? 8 : 6, alignItems: horizontal ? "stretch" : "flex-end", height: horizontal ? "auto" : 160 }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ display: "flex", flexDirection: horizontal ? "row" : "column", alignItems: horizontal ? "center" : "center", gap: 4, flex: horizontal ? undefined : 1, minWidth: horizontal ? undefined : 0 }}>
+          {horizontal ? (
+            <>
+              <div style={{ width: 120, fontSize: 11, color: MUTED, textAlign: "right", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label}</div>
+              <div style={{ flex: 1, height: 14, background: "#1c2333", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${(d.value / max) * 100}%`, height: "100%", background: color, borderRadius: 4, transition: "width .5s" }} />
+              </div>
+              <div style={{ width: 28, fontSize: 11, fontFamily: "monospace", color, textAlign: "right", flexShrink: 0 }}>{d.value}</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontFamily: "monospace", fontSize: 10, color, fontWeight: 700 }}>{d.value || ""}</div>
+              <div style={{ width: "100%", flex: 1, display: "flex", alignItems: "flex-end" }}>
+                <div style={{ width: "100%", height: `${(d.value / max) * 100}%`, background: color, borderRadius: "4px 4px 0 0", minHeight: d.value ? 4 : 0, transition: "height .5s" }} />
+              </div>
+              <div style={{ fontSize: 10, color: MUTED, textAlign: "center", wordBreak: "break-word" }}>{d.label}</div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DonutChart({ data }) {
+  const total = data.reduce((a, b) => a + b.value, 0) || 1;
+  const colors = [TEAL, AMBER, SKY, ROSE, GREEN, "#a78bfa"];
+  let offset = 0;
+  const segments = data.map((d, i) => {
+    const pct = d.value / total;
+    const seg = { ...d, color: colors[i % colors.length], offset, pct };
+    offset += pct;
+    return seg;
+  });
+  const r = 40, cx = 60, cy = 60, stroke = 18;
+  const arc = (pct) => {
+    const a = pct * 2 * Math.PI;
+    const x = cx + r * Math.sin(a);
+    const y = cy - r * Math.cos(a);
+    return pct > 0.999 ? `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r}` : `M ${cx} ${cy - r} A ${r} ${r} 0 ${a > Math.PI ? 1 : 0} 1 ${x} ${y}`;
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <svg width="120" height="120" viewBox="0 0 120 120">
+        {segments.map((seg, i) => {
+          const startA = seg.offset * 2 * Math.PI;
+          const endA = (seg.offset + seg.pct) * 2 * Math.PI;
+          const x1 = cx + r * Math.sin(startA), y1 = cy - r * Math.cos(startA);
+          const x2 = cx + r * Math.sin(endA), y2 = cy - r * Math.cos(endA);
+          const large = seg.pct > 0.5 ? 1 : 0;
+          const d = seg.pct > 0.999
+            ? `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`
+            : `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+          return <path key={i} d={d} fill="none" stroke={seg.color} strokeWidth={stroke} />;
+        })}
+        <circle cx={cx} cy={cy} r={r - stroke / 2 - 2} fill="#0d1117" />
+        <text x={cx} y={cy + 4} textAnchor="middle" fill="#e6edf3" fontSize="16" fontWeight="700" fontFamily="monospace">{total}</text>
+      </svg>
+      <div style={{ flex: 1 }}>
+        {segments.map((seg, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>{seg.label}</span>
+            <span style={{ fontSize: 11, fontFamily: "monospace", color: seg.color }}>{seg.value} ({(seg.pct * 100).toFixed(0)}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FreqTable({ data, fieldKey, n }) {
+  const rows = freq(data, fieldKey);
+  if (!rows.length) return <p style={{ color: MUTED, fontSize: 12 }}>No data yet.</p>;
+  const max = rows[0][1];
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      <thead>
+        <tr>
+          {["Category", "n", "%", "Distribution"].map(h => (
+            <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #30363d" }}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([k, v]) => {
+          const pct = n ? ((v / n) * 100).toFixed(1) : "—";
+          return (
+            <tr key={k}>
+              <td style={{ padding: "6px 10px", color: "#c9d1d9", borderBottom: "1px solid #21262d" }}>{k}</td>
+              <td style={{ padding: "6px 10px", fontFamily: "monospace", color: "#e6edf3", borderBottom: "1px solid #21262d" }}>{v}</td>
+              <td style={{ padding: "6px 10px", fontFamily: "monospace", color: TEAL, borderBottom: "1px solid #21262d" }}>{pct}%</td>
+              <td style={{ padding: "6px 10px", borderBottom: "1px solid #21262d" }}>
+                <div style={{ height: 6, background: "#1c2333", borderRadius: 3, overflow: "hidden", width: 120 }}>
+                  <div style={{ height: "100%", width: `${(v / max) * 100}%`, background: TEAL, borderRadius: 3 }} />
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FORM VIEW
+// ══════════════════════════════════════════════════════════════════
+function FormView() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [submitted, setSubmitted] = useState(false);
+  const [tp, setTp] = useState("Baseline (Week 0)");
+  const [f, setF] = useState({
+    pid: "", date: today,
+    age: "", sex: "", marital: "", edu: "", occ: "", income: "", group: "", area: "",
+    dm_dur: "", meds: "", comorbid: [], fam_dm: "", smoke: "", pa: "", shift: "",
+    weight: "", height: "", bmi: "", waist: "", hip: "", sbp: "", dbp: "",
+    fbg: "", hba1c: "", tc: "", hdl: "", ldl: "", tg: "", insulin: "", homa: "", crp: "",
+    first_meal: "", last_meal: "", meals_day: "", skip_bfast: "", late_eat: "", kcal: "", diet: [], water: "", soda: "",
+    adhere_days: "", window_kept: "", barrier: "", cal_rest: "", adhere_rate: "",
+    sleep: "", sleep_q: "", energy: "", hunger: "",
+    qol_mob: "", qol_care: "", qol_act: "", qol_pain: "", qol_anx: "", vas: "50",
+    adverse: [], ae_notes: "", withdrawn: "No",
+    entered_by: "", data_q: "", notes: "",
+  });
+
+  function set(key, val) {
+    setF(prev => {
+      const next = { ...prev, [key]: val };
+      // auto BMI
+      const w = parseFloat(key === "weight" ? val : next.weight);
+      const h = parseFloat(key === "height" ? val : next.height) / 100;
+      if (w > 0 && h > 0) next.bmi = (w / (h * h)).toFixed(1);
+      // auto HOMA
+      const g = parseFloat(key === "fbg" ? val : next.fbg);
+      const ins = parseFloat(key === "insulin" ? val : next.insulin);
+      if (g > 0 && ins > 0) next.homa = ((g * ins) / 405).toFixed(2);
+      return next;
+    });
+  }
+
+  function submit() {
+    if (!f.pid.trim()) { alert("Participant ID is required."); return; }
+    if (!f.date) { alert("Assessment date is required."); return; }
+    const all = load();
+    all.push({ ...f, timepoint: tp, id: Date.now(), submitted: new Date().toISOString() });
+    save(all);
+    setSubmitted(true);
+  }
+
+  function reset() {
+    setSubmitted(false);
+    setF(prev => ({ ...prev, pid: "", age: "", sex: "", weight: "", height: "", bmi: "", fbg: "", hba1c: "", comorbid: [], adverse: [], diet: [], notes: "" }));
+    window.scrollTo(0, 0);
+  }
+
+  if (submitted) return (
+    <div style={{ textAlign: "center", padding: "80px 24px" }}>
+      <div style={{ fontSize: 60, marginBottom: 16 }}>✅</div>
+      <h2 style={{ color: TEAL, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Response Saved!</h2>
+      <p style={{ color: MUTED, marginBottom: 24 }}>Data recorded and available in the Researcher Dashboard.</p>
+      <button onClick={reset} style={{ ...S.outlineBtn(TEAL), fontSize: 14, padding: "10px 28px" }}>+ Enter Another Participant</button>
+    </div>
+  );
+
+  const inp = (key, type = "text", extra = {}) => (
+    <input type={type} value={f[key]} onChange={e => set(key, e.target.value)} style={{ ...S.input, ...(extra.readonly ? { opacity: .6 } : {}) }} readOnly={extra.readonly} placeholder={extra.ph || ""} min={extra.min} max={extra.max} step={extra.step} />
+  );
+  const sel = (key, opts) => (
+    <select value={f[key]} onChange={e => set(key, e.target.value)} style={S.select}>
+      <option value="">— Select —</option>
+      {opts.map(o => <option key={o}>{o}</option>)}
+    </select>
+  );
+
+  return (
+    <div>
+      <div style={S.hero}>
+        <div style={S.heroEye}>Randomized Controlled Trial</div>
+        <h1 style={S.h1}>Time-Restricted Eating &<br /><span style={{ color: TEAL }}>Metabolic Health Study</span></h1>
+        <p style={S.heroP}>12-week RCT evaluating a 10-hour eating window (8 AM–6 PM) on metabolic parameters. Sialkot, Pakistan.</p>
+        <div>
+          {["✓ Ethics Approved", "Epione Research", "Sialkot, Pakistan", "RCT 2025–2026"].map((b, i) => (
+            <span key={b} style={S.badge(i === 0)}>{b}</span>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.wrap}>
+        {/* Timepoint */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>📅</div><div><div style={S.cardTitle}>Assessment Timepoint</div><div style={S.cardSub}>Select which visit this is</div></div></div>
+          <div style={S.body}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              {["Baseline (Week 0)", "Week 4", "Week 8", "Week 12"].map(t => (
+                <button key={t} onClick={() => setTp(t)} style={S.tpBtn(tp === t)}>{t}</button>
+              ))}
+            </div>
+            <div style={S.grid2}>
+              <Field label="Participant ID / Code" required><input type="text" value={f.pid} onChange={e => set("pid", e.target.value)} style={S.input} placeholder="e.g. TRE-001" /></Field>
+              <Field label="Date of Assessment" required><input type="date" value={f.date} onChange={e => set("date", e.target.value)} style={S.input} /></Field>
+            </div>
+          </div>
+        </div>
+
+        {/* A. Demographics */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>👤</div><div><div style={S.cardTitle}>A. Demographic Information</div><div style={S.cardSub}>Collected at baseline</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Age (years)" required>{inp("age", "number", { min: 18, max: 65, ph: "e.g. 42" })}</Field>
+              <Field label="Sex" required>{sel("sex", ["Male", "Female"])}</Field>
+              <Field label="Marital Status" mt={14}>{sel("marital", ["Single", "Married", "Widowed", "Divorced"])}</Field>
+              <Field label="Education Level" mt={14}>{sel("edu", ["No formal education", "Primary school", "Secondary / Matriculation", "Intermediate / F.Sc / FA", "Bachelor's degree", "Master's or above"])}</Field>
+              <Field label="Occupation" mt={14}>{sel("occ", ["Employed (formal sector)", "Self-employed / Business", "Housewife / Homemaker", "Student", "Retired", "Unemployed", "Daily wage worker"])}</Field>
+              <Field label="Monthly income (PKR)" mt={14}>{sel("income", ["Less than 30,000", "30,000–60,000", "60,001–100,000", "100,001–150,000", "More than 150,000"])}</Field>
+              <Field label="Randomization Group" required mt={14}>{sel("group", ["Intervention (TRE)", "Control (Usual diet)"])}</Field>
+              <Field label="Residential area" mt={14}>{sel("area", ["Urban", "Peri-urban", "Rural"])}</Field>
+            </div>
+          </div>
+        </div>
+
+        {/* B. Clinical */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>🏥</div><div><div style={S.cardTitle}>B. Clinical History</div><div style={S.cardSub}>Medical background and risk factors</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Duration of metabolic condition (years)">{inp("dm_dur", "number", { min: 0, ph: "e.g. 5" })}</Field>
+              <Field label="Current medications">{sel("meds", ["No medications", "Oral hypoglycemics only", "Insulin only", "Oral + Insulin", "Antihypertensives", "Lipid-lowering", "Multiple medications"])}</Field>
+            </div>
+            <Field label="Co-morbidities (select all that apply)" mt={14}>
+              <CheckGroup options={["Hypertension", "Dyslipidemia", "PCOS", "NAFLD", "Hypothyroidism", "Ischemic Heart Disease", "None"]} values={f.comorbid} onChange={v => set("comorbid", v)} />
+            </Field>
+            <div style={{ ...S.grid2, marginTop: 14 }}>
+              <Field label="Family history of T2DM">{sel("fam_dm", ["Yes – first degree", "Yes – second degree", "No", "Unknown"])}</Field>
+              <Field label="Smoking status">{sel("smoke", ["Never smoked", "Current smoker", "Ex-smoker"])}</Field>
+              <Field label="Physical activity level" mt={14}>{sel("pa", ["Sedentary", "Lightly active (1–2 days/week)", "Moderately active (3–4 days/week)", "Very active (5+ days/week)"])}</Field>
+              <Field label="Shift/irregular schedule" mt={14}>{sel("shift", ["No – regular daytime", "Night shift", "Rotating shifts", "Irregular schedule"])}</Field>
+            </div>
+          </div>
+        </div>
+
+        {/* C. Anthropometrics */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>📏</div><div><div style={S.cardTitle}>C. Anthropometric Measurements</div><div style={S.cardSub}>Entered by researcher at each visit</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid3}>
+              <Field label="Weight (kg)" required>{inp("weight", "number", { step: ".1", ph: "e.g. 78.5" })}</Field>
+              <Field label="Height (cm)" required>{inp("height", "number", { step: ".1", ph: "e.g. 165.0" })}</Field>
+              <Field label="BMI — auto calculated"><input value={f.bmi} readOnly style={{ ...S.input, opacity: .6 }} placeholder="Auto" /></Field>
+            </div>
+            <div style={{ ...S.grid2, marginTop: 14 }}>
+              <Field label="Waist circumference (cm)">{inp("waist", "number", { step: ".1", ph: "e.g. 92.0" })}</Field>
+              <Field label="Hip circumference (cm)">{inp("hip", "number", { step: ".1", ph: "e.g. 104.0" })}</Field>
+              <Field label="Systolic BP (mmHg)" mt={14}>{inp("sbp", "number", { ph: "e.g. 132" })}</Field>
+              <Field label="Diastolic BP (mmHg)" mt={14}>{inp("dbp", "number", { ph: "e.g. 84" })}</Field>
+            </div>
+          </div>
+        </div>
+
+        {/* D. Labs */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>🧪</div><div><div style={S.cardTitle}>D. Metabolic & Laboratory Parameters</div><div style={S.cardSub}>Fasting blood results — entered by researcher</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Fasting Blood Glucose (mg/dL)">{inp("fbg", "number", { step: ".1", ph: "e.g. 126" })}</Field>
+              <Field label="HbA1c (%)">{inp("hba1c", "number", { step: ".1", ph: "e.g. 7.2" })}</Field>
+            </div>
+            <div style={{ ...S.grid3, marginTop: 14 }}>
+              <Field label="Total Cholesterol (mg/dL)">{inp("tc", "number", { ph: "e.g. 195" })}</Field>
+              <Field label="HDL (mg/dL)">{inp("hdl", "number", { ph: "e.g. 42" })}</Field>
+              <Field label="LDL (mg/dL)">{inp("ldl", "number", { ph: "e.g. 118" })}</Field>
+            </div>
+            <div style={{ ...S.grid3, marginTop: 14 }}>
+              <Field label="Triglycerides (mg/dL)">{inp("tg", "number", { ph: "e.g. 160" })}</Field>
+              <Field label="Fasting Insulin (µIU/mL)">{inp("insulin", "number", { step: ".1", ph: "e.g. 14.2" })}</Field>
+              <Field label="HOMA-IR — auto"><input value={f.homa} readOnly style={{ ...S.input, opacity: .6 }} placeholder="Auto" /></Field>
+            </div>
+            <div style={{ ...S.grid2, marginTop: 14 }}>
+              <Field label="hs-CRP (mg/L)">{inp("crp", "number", { step: ".01", ph: "e.g. 3.2" })}</Field>
+            </div>
+          </div>
+        </div>
+
+        {/* E. Diet */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>🍽</div><div><div style={S.cardTitle}>E. Dietary & Eating Pattern Assessment</div><div style={S.cardSub}>Participant-reported</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Usual first meal time">{inp("first_meal", "time")}</Field>
+              <Field label="Usual last meal/snack time">{inp("last_meal", "time")}</Field>
+              <Field label="Meals per day" mt={14}>{sel("meals_day", ["1 meal", "2 meals", "3 meals", "3 meals + 1 snack", "3 meals + 2 snacks", "5+ eating events"])}</Field>
+              <Field label="Skips breakfast regularly?" mt={14}>{sel("skip_bfast", ["Never", "Rarely (once/month)", "Sometimes (1–2×/week)", "Often (3–4×/week)", "Always"])}</Field>
+              <Field label="Late-night eating (after 9 PM)?" mt={14}>{sel("late_eat", ["Never", "Rarely", "Sometimes", "Often", "Every night"])}</Field>
+              <Field label="Estimated daily calories" mt={14}>{sel("kcal", ["<1500 kcal", "1500–2000 kcal", "2001–2500 kcal", ">2500 kcal", "Not sure"])}</Field>
+              <Field label="Water intake per day" mt={14}>{sel("water", ["<4 glasses", "4–6 glasses", "7–8 glasses", ">8 glasses"])}</Field>
+              <Field label="Sugary drinks per day" mt={14}>{sel("soda", ["None", "1 glass/can", "2–3", "More than 3"])}</Field>
+            </div>
+            <Field label="Dietary pattern (select all)" mt={14}>
+              <CheckGroup options={["High carb / rice-based", "High fat / fried", "High sugar / sweets", "Vegetarian", "Traditional Pakistani", "Balanced / Mixed"]} values={f.diet} onChange={v => set("diet", v)} />
+            </Field>
+          </div>
+        </div>
+
+        {/* F. Adherence */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>⏱</div><div><div style={S.cardTitle}>F. TRE Adherence</div><div style={S.cardSub}>Complete at follow-up visits (Week 4, 8, 12)</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Days/week adhered to 10-hr window">{sel("adhere_days", ["0 days", "1–2 days", "3–4 days", "5 days", "6 days", "All 7 days"])}</Field>
+              <Field label="Eating window maintained">{sel("window_kept", ["8 AM–6 PM (exact)", "Within 30 min deviation", "Within 1 hour deviation", ">1 hour deviation", "Did not maintain"])}</Field>
+              <Field label="Main barrier to adherence" mt={14}>{sel("barrier", ["Social events / gatherings", "Family meal times", "Hunger / cravings", "Work schedule", "Travel", "Illness", "No major barrier"])}</Field>
+              <Field label="Calorie restriction in window?" mt={14}>{sel("cal_rest", ["No – ate normally", "Mildly restricted", "Moderately restricted", "Significantly restricted"])}</Field>
+            </div>
+            <Field label="Overall adherence self-rating (1 = poor → 10 = perfect)" mt={14}>
+              <Likert max={10} value={f.adhere_rate} onChange={v => set("adhere_rate", v)} />
+            </Field>
+          </div>
+        </div>
+
+        {/* G. Sleep */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>💤</div><div><div style={S.cardTitle}>G. Sleep & Energy</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Average sleep per night">{sel("sleep", ["<5 hours", "5–6 hours", "6–7 hours", "7–8 hours", ">8 hours"])}</Field>
+              <Field label="Sleep quality (self-rated)">{sel("sleep_q", ["Very poor", "Poor", "Fair", "Good", "Very good"])}</Field>
+            </div>
+            <Field label="Daytime energy level (1 = very low → 5 = excellent)" mt={14}>
+              <Likert max={5} labels={["Very low", "Low", "Moderate", "Good", "Excellent"]} value={f.energy} onChange={v => set("energy", v)} />
+            </Field>
+            <Field label="Hunger level during the day (1 = none → 5 = constant)" mt={14}>
+              <Likert max={5} labels={["None", "Mild", "Moderate", "High", "Constant"]} value={f.hunger} onChange={v => set("hunger", v)} />
+            </Field>
+          </div>
+        </div>
+
+        {/* H. QoL */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>🌿</div><div><div style={S.cardTitle}>H. Quality of Life (EQ-5D domains)</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Mobility">{sel("qol_mob", ["No problems", "Slight problems", "Moderate problems", "Severe problems", "Unable to walk"])}</Field>
+              <Field label="Self-care">{sel("qol_care", ["No problems", "Slight problems", "Moderate problems", "Severe problems", "Unable to manage"])}</Field>
+              <Field label="Usual activities" mt={14}>{sel("qol_act", ["No problems", "Slight problems", "Moderate problems", "Severe problems", "Unable to do"])}</Field>
+              <Field label="Pain / Discomfort" mt={14}>{sel("qol_pain", ["None", "Slight", "Moderate", "Severe", "Extreme"])}</Field>
+              <Field label="Anxiety / Depression" mt={14}>{sel("qol_anx", ["Not anxious or depressed", "Slightly", "Moderately", "Severely", "Extremely"])}</Field>
+            </div>
+            <Field label={`Overall health today — VAS: ${f.vas} / 100`} mt={14}>
+              <input type="range" min="0" max="100" value={f.vas} onChange={e => set("vas", e.target.value)} style={{ width: "100%", accentColor: TEAL, marginTop: 6 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: MUTED, marginTop: 4 }}>
+                <span>0 – Worst</span><span style={{ fontFamily: "monospace", color: TEAL, fontSize: 16 }}>{f.vas}</span><span>100 – Best</span>
+              </div>
+            </Field>
+          </div>
+        </div>
+
+        {/* I. Adverse Events */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>⚠️</div><div><div style={S.cardTitle}>I. Adverse Events</div><div style={S.cardSub}>Reported since last visit</div></div></div>
+          <div style={S.body}>
+            <Field label="Adverse events (select all that apply)">
+              <CheckGroup options={["Hypoglycemia episode", "Dizziness / fainting", "Severe headache", "GI distress / nausea", "Excessive fatigue", "Hospitalization", "None"]} values={f.adverse} onChange={v => set("adverse", v)} />
+            </Field>
+            <Field label="Details / additional notes" mt={14}><textarea value={f.ae_notes} onChange={e => set("ae_notes", e.target.value)} style={S.textarea} placeholder="Describe adverse events or leave blank if none..." /></Field>
+            <Field label="Participant status" mt={14}>{sel("withdrawn", ["No – continuing", "Withdrawn by participant", "Withdrawn by PI", "Lost to follow-up"])}</Field>
+          </div>
+        </div>
+
+        {/* J. Researcher */}
+        <div style={S.card}>
+          <div style={S.cardHead}><div style={S.cardIcon}>📝</div><div><div style={S.cardTitle}>J. Researcher Notes</div><div style={S.cardSub}>Internal only</div></div></div>
+          <div style={S.body}>
+            <div style={S.grid2}>
+              <Field label="Entered by (initials)">{inp("entered_by", "text", { ph: "e.g. QAZ" })}</Field>
+              <Field label="Data completeness">{sel("data_q", ["Complete", "Minor missing data", "Moderate missing data", "Significant missing data"])}</Field>
+            </div>
+            <Field label="Field notes / protocol deviations" mt={14}><textarea value={f.notes} onChange={e => set("notes", e.target.value)} style={S.textarea} placeholder="Any observations, deviations, or clinical notes..." /></Field>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.submitBar}>
+        <div style={{ fontSize: 12, color: MUTED }}>Fields marked <span style={{ color: TEAL }}>*</span> are required · Data saved to Researcher Dashboard</div>
+        <button onClick={submit} style={S.submitBtn}>Save Response →</button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DASHBOARD VIEW
+// ══════════════════════════════════════════════════════════════════
+function DashboardView() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [filter, setFilter] = useState("All");
+
+  const all = load();
+  const data = filter === "All" ? all : all.filter(r => r.timepoint === filter);
+
+  if (!unlocked) return (
+    <div style={{ maxWidth: 380, margin: "80px auto", padding: "40px 32px", background: "#161b22", border: "1px solid #30363d", borderRadius: 12, textAlign: "center" }}>
+      <div style={{ fontSize: 48, marginBottom: 12 }}>🔐</div>
+      <h2 style={{ color: TEAL, fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Researcher Access</h2>
+      <p style={{ color: MUTED, fontSize: 13, marginBottom: 24 }}>Restricted to authorized research personnel.</p>
+      <input type="password" value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === "Enter" && (pw === DASH_PASSWORD ? setUnlocked(true) : setErr("Incorrect password."))} placeholder="Enter password" style={{ ...S.input, textAlign: "center", letterSpacing: "0.12em", marginBottom: 10 }} />
+      <button onClick={() => pw === DASH_PASSWORD ? setUnlocked(true) : setErr("Incorrect password.")} style={{ ...S.submitBtn, width: "100%" }}>Access Dashboard</button>
+      {err && <div style={{ color: ROSE, fontSize: 12, marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+
+  const tps = ["Baseline (Week 0)", "Week 4", "Week 8", "Week 12"];
+  const filterColors = { All: TEAL, "Baseline (Week 0)": SKY, "Week 4": AMBER, "Week 8": GREEN, "Week 12": ROSE };
+
+  const ageBuckets = [
+    { label: "18–25", value: data.filter(r => { const a = parseInt(r.age); return a >= 18 && a <= 25; }).length },
+    { label: "26–35", value: data.filter(r => { const a = parseInt(r.age); return a >= 26 && a <= 35; }).length },
+    { label: "36–45", value: data.filter(r => { const a = parseInt(r.age); return a >= 36 && a <= 45; }).length },
+    { label: "46–55", value: data.filter(r => { const a = parseInt(r.age); return a >= 46 && a <= 55; }).length },
+    { label: "56–65", value: data.filter(r => { const a = parseInt(r.age); return a >= 56 && a <= 65; }).length },
+  ];
+
+  const bmiBuckets = [
+    { label: "<18.5", value: data.filter(r => parseFloat(r.bmi) < 18.5).length },
+    { label: "18.5–24.9", value: data.filter(r => { const b = parseFloat(r.bmi); return b >= 18.5 && b < 25; }).length },
+    { label: "25–29.9", value: data.filter(r => { const b = parseFloat(r.bmi); return b >= 25 && b < 30; }).length },
+    { label: "30–34.9", value: data.filter(r => { const b = parseFloat(r.bmi); return b >= 30 && b < 35; }).length },
+    { label: "≥35", value: data.filter(r => parseFloat(r.bmi) >= 35).length },
+  ];
+
+  const hba1cBuckets = [
+    { label: "<5.7%", value: data.filter(r => parseFloat(r.hba1c) < 5.7).length },
+    { label: "5.7–6.4%", value: data.filter(r => { const h = parseFloat(r.hba1c); return h >= 5.7 && h < 6.5; }).length },
+    { label: "6.5–7.9%", value: data.filter(r => { const h = parseFloat(r.hba1c); return h >= 6.5 && h < 8; }).length },
+    { label: "8–9.9%", value: data.filter(r => { const h = parseFloat(r.hba1c); return h >= 8 && h < 10; }).length },
+    { label: "≥10%", value: data.filter(r => parseFloat(r.hba1c) >= 10).length },
+  ];
+
+  const tpCounts = tps.map(t => ({ label: t.replace(" (Week 0)", ""), value: all.filter(r => r.timepoint === t).length }));
+
+  const sexCounts = [
+    { label: "Male", value: data.filter(r => r.sex === "Male").length },
+    { label: "Female", value: data.filter(r => r.sex === "Female").length },
+  ].filter(d => d.value > 0);
+
+  const groupCounts = [
+    { label: "Intervention", value: data.filter(r => r.group === "Intervention (TRE)").length },
+    { label: "Control", value: data.filter(r => r.group === "Control (Usual diet)").length },
+  ].filter(d => d.value > 0);
+
+  const energyCounts = ["1", "2", "3", "4", "5"].map(n => ({ label: n, value: data.filter(r => r.energy === n).length }));
+
+  const metParams = [
+    ["Weight (kg)", "weight"], ["BMI (kg/m²)", "bmi"], ["Waist (cm)", "waist"],
+    ["Systolic BP", "sbp"], ["Diastolic BP", "dbp"],
+    ["FBG (mg/dL)", "fbg"], ["HbA1c (%)", "hba1c"],
+    ["Total Chol.", "tc"], ["HDL", "hdl"], ["LDL", "ldl"], ["TG", "tg"],
+    ["Insulin", "insulin"], ["HOMA-IR", "homa"], ["hs-CRP", "crp"], ["VAS", "vas"],
+  ];
+  const intData = data.filter(r => r.group === "Intervention (TRE)");
+  const ctrlData = data.filter(r => r.group === "Control (Usual diet)");
+
+  function exportCSV() {
+    if (!data.length) { alert("No data to export."); return; }
+    const keys = Object.keys(data[0]);
+    const csv = [keys.join(","), ...data.map(r => keys.map(k => `"${(r[k] || "").toString().replace(/"/g, '""')}"`).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `TRE_Study_${filter.replace(/ /g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  }
+
+  function clearAll() {
+    if (confirm("⚠️ Permanently delete ALL study data?")) {
+      if (confirm("Final confirmation — this cannot be undone.")) {
+        localStorage.removeItem(STORAGE_KEY);
+        window.location.reload();
+      }
+    }
+  }
+
+  const tpBadgeStyle = (tp) => {
+    const c = { "Baseline (Week 0)": SKY, "Week 4": AMBER, "Week 8": GREEN, "Week 12": ROSE }[tp] || MUTED;
+    return { padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700, fontFamily: "monospace", background: c + "22", color: c };
+  };
+
+  return (
+    <div style={{ padding: "28px 16px", maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700 }}>TRE Study — Researcher Dashboard</h2>
+        <p style={{ color: MUTED, fontSize: 13 }}>Epione Research & Publishing · Real-time participant data</p>
+      </div>
+
+      {/* Filter */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        {["All", ...tps].map(t => {
+          const active = filter === t;
+          return <button key={t} onClick={() => setFilter(t)} style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid " + (active ? filterColors[t] : "#30363d"), background: active ? filterColors[t] + "22" : "none", color: active ? filterColors[t] : MUTED, fontSize: 12, fontWeight: active ? 700 : 400, cursor: "pointer" }}>{t === "Baseline (Week 0)" ? "Baseline" : t}</button>;
+        })}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14, marginBottom: 24 }}>
+        {[
+          ["Total Responses", data.length, TEAL],
+          ["Intervention", data.filter(r => r.group === "Intervention (TRE)").length, SKY],
+          ["Control", data.filter(r => r.group === "Control (Usual diet)").length, AMBER],
+          ["Baseline Visits", all.filter(r => r.timepoint === "Baseline (Week 0)").length, GREEN],
+          ["Complete Records", data.filter(r => r.data_q === "Complete").length, "#a78bfa"],
+          ["Withdrawn", data.filter(r => r.withdrawn && r.withdrawn !== "No").length, ROSE],
+        ].map(([label, val, color]) => (
+          <div key={label} style={S.stat}>
+            <div style={{ ...S.statVal, color }}>{val}</div>
+            <div style={S.statLabel}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+        <button onClick={exportCSV} style={S.outlineBtn(TEAL)}>⬇ Export CSV</button>
+        <button onClick={clearAll} style={S.outlineBtn(ROSE)}>🗑 Clear All Data</button>
+      </div>
+
+      {data.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: MUTED }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+          <p>No responses for this filter yet. Submit the participant form to see data here.</p>
+        </div>
+      ) : (
+        <>
+          {/* Charts grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>Sex Distribution</div>
+              <DonutChart data={sexCounts} />
+            </div>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>Randomization Group</div>
+              <DonutChart data={groupCounts} />
+            </div>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>Age Distribution</div>
+              <BarChart data={ageBuckets} color={TEAL} />
+            </div>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>BMI Categories</div>
+              <BarChart data={bmiBuckets} color={AMBER} />
+            </div>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>HbA1c Distribution</div>
+              <BarChart data={hba1cBuckets} color={ROSE} />
+            </div>
+            <div style={S.chartCard()}>
+              <div style={S.chartTitle}>Daytime Energy Levels</div>
+              <BarChart data={energyCounts} color={GREEN} />
+            </div>
+            <div style={{ ...S.chartCard(true) }}>
+              <div style={S.chartTitle}>Assessments by Timepoint (all data)</div>
+              <BarChart data={tpCounts} color={SKY} />
+            </div>
+          </div>
+
+          {/* Adherence */}
+          <div style={{ ...S.card, marginBottom: 20 }}>
+            <div style={S.cardHead}><div style={S.cardIcon}>⏱</div><div><div style={S.cardTitle}>Adherence — Days/Week</div></div></div>
+            <div style={S.body}><BarChart data={["0 days","1–2 days","3–4 days","5 days","6 days","All 7 days"].map(v => ({ label: v, value: data.filter(r => r.adhere_days === v).length }))} color={AMBER} /></div>
+          </div>
+
+          {/* Freq tables */}
+          <div style={{ ...S.card, marginBottom: 20 }}>
+            <div style={S.cardHead}><div style={S.cardIcon}>📊</div><div><div style={S.cardTitle}>Co-morbidities — Frequency Table</div></div></div>
+            <div style={S.body}><FreqTable data={data} fieldKey="comorbid" n={data.length} /></div>
+          </div>
+
+          <div style={{ ...S.card, marginBottom: 20 }}>
+            <div style={S.cardHead}><div style={S.cardIcon}>📊</div><div><div style={S.cardTitle}>Adherence Barriers — Frequency Table</div></div></div>
+            <div style={S.body}><FreqTable data={data} fieldKey="barrier" n={data.length} /></div>
+          </div>
+
+          <div style={{ ...S.card, marginBottom: 20 }}>
+            <div style={S.cardHead}><div style={S.cardIcon}>⚠️</div><div><div style={S.cardTitle}>Adverse Events — Frequency Table</div></div></div>
+            <div style={S.body}><FreqTable data={data} fieldKey="adverse" n={data.length} /></div>
+          </div>
+
+          {/* Metabolic means */}
+          <div style={{ ...S.card, marginBottom: 20 }}>
+            <div style={S.cardHead}><div style={S.cardIcon}>🧪</div><div><div style={S.cardTitle}>Mean Metabolic Parameters</div><div style={S.cardSub}>Overall · Intervention · Control</div></div></div>
+            <div style={{ ...S.body, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {["Parameter", "Overall Mean", "Intervention", "Control", "n with data"].map((h, i) => (
+                      <th key={h} style={{ textAlign: "left", padding: "7px 10px", fontSize: 11, color: [MUTED, TEAL, SKY, AMBER, MUTED][i], textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #30363d" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {metParams.map(([label, key]) => (
+                    <tr key={key}>
+                      <td style={{ padding: "6px 10px", color: "#c9d1d9", borderBottom: "1px solid #21262d" }}>{label}</td>
+                      <td style={{ padding: "6px 10px", fontFamily: "monospace", color: TEAL, borderBottom: "1px solid #21262d" }}>{mean(data, key)}</td>
+                      <td style={{ padding: "6px 10px", fontFamily: "monospace", color: SKY, borderBottom: "1px solid #21262d" }}>{mean(intData, key)}</td>
+                      <td style={{ padding: "6px 10px", fontFamily: "monospace", color: AMBER, borderBottom: "1px solid #21262d" }}>{mean(ctrlData, key)}</td>
+                      <td style={{ padding: "6px 10px", fontFamily: "monospace", color: MUTED, borderBottom: "1px solid #21262d" }}>{data.filter(r => r[key] && !isNaN(parseFloat(r[key]))).length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Raw data */}
+          <div style={S.card}>
+            <div style={S.cardHead}><div style={S.cardIcon}>📋</div><div><div style={S.cardTitle}>Raw Response Data ({data.length} records)</div></div></div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, whiteSpace: "nowrap" }}>
+                <thead>
+                  <tr>
+                    {["Submitted", "PID", "Timepoint", "Group", "Age", "Sex", "BMI", "FBG", "HbA1c", "Weight", "BP", "Adherence", "Status", "Quality"].map(h => (
+                      <th key={h} style={{ padding: "8px 12px", background: "#1c2333", color: MUTED, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #30363d", textAlign: "left" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...data].reverse().map(r => (
+                    <tr key={r.id}>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: MUTED }}>{new Date(r.submitted).toLocaleDateString()}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontWeight: 700, color: "#e6edf3" }}>{r.pid}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d" }}><span style={tpBadgeStyle(r.timepoint)}>{r.timepoint}</span></td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: r.group === "Intervention (TRE)" ? TEAL : AMBER }}>{r.group ? r.group.replace(" (TRE)", "").replace(" (Usual diet)", "") : "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: MUTED }}>{r.age || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: MUTED }}>{r.sex || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontFamily: "monospace" }}>{r.bmi || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontFamily: "monospace" }}>{r.fbg || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontFamily: "monospace" }}>{r.hba1c || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontFamily: "monospace" }}>{r.weight || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", fontFamily: "monospace" }}>{r.sbp && r.dbp ? `${r.sbp}/${r.dbp}` : "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: MUTED }}>{r.adhere_days || "—"}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: r.withdrawn !== "No" ? ROSE : GREEN }}>{r.withdrawn}</td>
+                      <td style={{ padding: "7px 12px", borderBottom: "1px solid #21262d", color: MUTED }}>{r.data_q || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  ROOT
+// ══════════════════════════════════════════════════════════════════
+export default function App() {
+  const [view, setView] = useState("form");
+  return (
+    <div style={S.page}>
+      <nav style={S.nav}>
+        <div>
+          <div style={S.brand}>⏱ TRE Study</div>
+          <div style={S.brandSub}>Epione Research & Publishing · Sialkot</div>
+        </div>
+        <div style={S.tabs}>
+          <button onClick={() => setView("form")} style={S.tab(view === "form")}>📋 Participant Form</button>
+          <button onClick={() => setView("dashboard")} style={S.tab(view === "dashboard")}>📊 Researcher Dashboard</button>
+        </div>
+      </nav>
+      {view === "form" ? <FormView /> : <DashboardView />}
+    </div>
+  );
+}
